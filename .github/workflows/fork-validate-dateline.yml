@@ -1,0 +1,37 @@
+name: Fork dateline validation
+
+on:
+  push:
+    branches: [ci/validate-dateline-20261027]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'tstotzer/slackwater'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - name: Confirm candidate source
+        run: |
+          test "$(git rev-parse HEAD^)" = 9d89885c50b568f8be02699af37e5cec80b2e63a
+          git diff --exit-code HEAD^ HEAD -- ':!.github/workflows/ci.yml' ':!.github/workflows/fork-validate-dateline.yml'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Full coverage before build
+        run: npm run coverage
+      - run: npm run build
+      - run: npm run lint
+      - name: Mocked release workflow tests
+        run: npm run test:release
+      - name: Confirm unchanged dependency lockfile
+        run: git diff --exit-code -- package-lock.json
