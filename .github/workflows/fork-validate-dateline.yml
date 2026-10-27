@@ -20,11 +20,11 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '24'
+          node-version: "24"
       - name: Confirm candidate source
         run: |
-          test "$(git rev-parse HEAD^)" = 9d89885c50b568f8be02699af37e5cec80b2e63a
-          git diff --exit-code HEAD^ HEAD -- ':!.github/workflows/ci.yml' ':!.github/workflows/fork-validate-dateline.yml'
+          git merge-base --is-ancestor 9d89885c50b568f8be02699af37e5cec80b2e63a HEAD
+          git diff --exit-code 9d89885c50b568f8be02699af37e5cec80b2e63a HEAD -- ':!.github/workflows/ci.yml' ':!.github/workflows/fork-validate-dateline.yml'
       - run: npm ci
       - run: npx playwright install --with-deps chromium --only-shell
       - name: Full coverage before build
