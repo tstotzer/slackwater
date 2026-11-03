@@ -1,0 +1,60 @@
+name: Fork IWLS 499 validation
+on:
+  push:
+    branches: [ci/validate-iwls-499-20261103]
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.repository == 'tstotzer/slackwater'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: b4526ffab4b0e6ac0b52c6c918c6868875b0e514
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "24.22.1"
+      - name: Verify exact source and isolated harness
+        run: |
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          git diff --exit-code "$SOURCE_SHA" HEAD -- ':!.github/workflows/ci.yml' ':!.github/workflows/build-binaries.yml' ':!.github/workflows/fork-validate-iwls-499.yml'
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD | wc -l)" -eq 3
+      - run: npm ci
+      - run: npx --no-install playwright install --with-deps chromium --only-shell
+      - name: Prove the interval test catches an early admission
+        run: |
+          set -euo pipefail
+          cp benchmarks/iwls.ts "$RUNNER_TEMP/iwls-original.ts"
+          trap 'cp "$RUNNER_TEMP/iwls-original.ts" benchmarks/iwls.ts' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("benchmarks/iwls.ts")
+          s = p.read_text()
+          old = "while (performance.now() < due) await delay"
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, "if (performance.now() < due) await delay"))
+          PY
+          set +e
+          npm test -- --run --project benchmarks benchmarks/iwls.test.ts -t 'never admits' > "$RUNNER_TEMP/499-mutation.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/499-mutation.log"
+          test "$result" -eq 1
+          grep -q 'expected true to be false' "$RUNNER_TEMP/499-mutation.log"
+          cp "$RUNNER_TEMP/iwls-original.ts" benchmarks/iwls.ts
+          git diff --exit-code
+      - name: Full coverage against unbuilt source
+        run: npm run coverage
+      - run: npm run build
+      - run: npm run lint
+      - name: Mocked release workflow checks, without publishing
+        run: npm run test:release
+      - name: Confirm source unchanged
+        run: |
+          git diff --exit-code
+          echo "Validated source $SOURCE_SHA; only an isolated fork harness differs." >> "$GITHUB_STEP_SUMMARY"
