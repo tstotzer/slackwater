@@ -1,0 +1,87 @@
+name: Fork CLI 495 validation
+on:
+  push:
+    branches: [ci/validate-cli-495-20261105]
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.repository == 'tstotzer/slackwater'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: 0c5a9cf134879a6eedb588601428b669b40f9fdc
+      BASE_SHA: 9945f90ddcb32f92f82d2c23abae171602dc704e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "24.22.1"
+      - name: Verify exact source and isolated harness
+        run: |
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          git diff --exit-code "$SOURCE_SHA" HEAD -- ':!.github/workflows/ci.yml' ':!.github/workflows/build-binaries.yml' ':!.github/workflows/fork-validate-cli-495.yml'
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD | wc -l)" -eq 3
+      - run: npm ci
+      - run: npx --no-install playwright install --with-deps chromium --only-shell
+      - name: Reproduce the guidance failure on unchanged base production code
+        run: |
+          set -euo pipefail
+          source=packages/cli/src/lib/currents.ts
+          cp "$source" "$RUNNER_TEMP/495-fixed.ts"
+          trap 'cp "$RUNNER_TEMP/495-fixed.ts" packages/cli/src/lib/currents.ts' EXIT
+          git show "$BASE_SHA:$source" > "$source"
+          git diff --exit-code "$BASE_SHA" -- 'packages/*/src/'
+          set +e
+          npm test -- --run packages/cli/test/commands/currents.test.ts -t 'identity-only CHS|checks the tide model|only subordinate offsets' > "$RUNNER_TEMP/495-base.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/495-base.log"
+          test "$result" -eq 1
+          grep -q '3 failed' "$RUNNER_TEMP/495-base.log"
+          grep -q 'has no local prediction model' "$RUNNER_TEMP/495-base.log"
+          cp "$RUNNER_TEMP/495-fixed.ts" "$source"
+          git diff --exit-code
+      - name: Full coverage against unbuilt source
+        run: npm run coverage
+      - name: Verify new guidance statements were exercised
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const path = 'packages/cli/src/lib/currents.ts';
+          const lines = fs.readFileSync(path, 'utf8').split('\n');
+          const start = lines.findIndex(l => l.includes('const tideStation =')) + 1;
+          const end = lines.findIndex(l => l.includes('has no local prediction model')) + 1;
+          assert(start > 0 && end >= start);
+          const all = JSON.parse(fs.readFileSync('coverage/coverage-final.json', 'utf8'));
+          const entry = Object.entries(all).find(([p]) => p.endsWith('/' + path))?.[1];
+          assert(entry, 'CLI coverage must exist');
+          const changed = Object.entries(entry.statementMap).filter(([, s]) => s.start.line >= start && s.start.line <= end);
+          assert(changed.length > 0);
+          for (const [id, location] of changed) assert(entry.s[id] > 0, `Uncovered new statement at ${location.start.line}`);
+          console.log(`All ${changed.length} new guidance statements covered`);
+          JS
+      - run: npm run build
+      - run: npm run lint
+      - name: Mocked release workflow checks, without publishing
+        run: npm run test:release
+      - name: Check patch changeset
+        run: npx --no-install changeset status --since "$BASE_SHA"
+      - name: Execute the documented CLI error paths
+        run: |
+          set +e
+          node packages/cli/bin/slackwater.js currents --station chs-abbotts-harbour > "$RUNNER_TEMP/495-model-less.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/495-model-less.log"
+          test "$result" -eq 1
+          grep -q 'has no local prediction model' "$RUNNER_TEMP/495-model-less.log"
+          ! grep -q 'slackwater extremes' "$RUNNER_TEMP/495-model-less.log"
+      - name: Confirm source unchanged
+        run: |
+          git diff --exit-code
+          echo "Validated source $SOURCE_SHA; only three isolated fork harness files differ." >> "$GITHUB_STEP_SUMMARY"
