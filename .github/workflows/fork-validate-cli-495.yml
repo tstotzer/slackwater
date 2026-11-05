@@ -45,8 +45,23 @@ jobs:
           grep -q 'has no local prediction model' "$RUNNER_TEMP/495-base.log"
           cp "$RUNNER_TEMP/495-fixed.ts" "$source"
           git diff --exit-code
-      - name: Full coverage against unbuilt source
+      - name: Set a reproducible browser calendar fixture
+        run: |
+          cp packages/react/test/setup.ts "$RUNNER_TEMP/react-setup-original.ts"
+          cat >> packages/react/test/setup.ts <<'TS'
+
+          import { beforeEach, vi } from "vitest";
+          beforeEach(() => vi.setSystemTime(new Date("2026-11-05T20:00:00Z")));
+          TS
+      - name: Full coverage against unbuilt source with fixed browser date
         run: npm run coverage
+      - name: Restore the original browser setup
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/react-setup-original.ts" ]; then
+            cp "$RUNNER_TEMP/react-setup-original.ts" packages/react/test/setup.ts
+          fi
+          git diff --exit-code
       - name: Verify new guidance statements were exercised
         run: |
           node --input-type=module <<'JS'
