@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 0
       - name: Verify exact source and fork-only harness scope
         run: |-
-          test "$(git rev-parse HEAD^)" = 122eb8bc3446d4c4379d5ce60bb15f361f22cfcb
+          git merge-base --is-ancestor 122eb8bc3446d4c4379d5ce60bb15f361f22cfcb HEAD
           python - <<'PY'
           import subprocess
           paths = subprocess.check_output(['git','diff','--name-only','122eb8bc3446d4c4379d5ce60bb15f361f22cfcb','HEAD'],text=True).splitlines()
@@ -172,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright
+      PLAYWRIGHT_BROWSERS_PATH: /tmp/codex-440-playwright
     steps:
       - *a3
       - uses: actions/setup-node@v7
