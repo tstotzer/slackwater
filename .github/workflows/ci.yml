@@ -131,7 +131,7 @@ jobs:
       - name: Skipped restore does not attempt an empty-key save
         run: test '${{ steps.save.outcome }}' = skipped
   cancellation:
-    if: github.ref == 'refs/heads/ci/440-cancel'
+    if: github.ref == 'refs/heads/ci/440-cancel' && !contains(github.event.head_commit.message, 'verify-cancel-cache')
     needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -153,7 +153,7 @@ jobs:
           key: ${{ steps.benchmark-cache.outputs.cache-primary-key }}
         id: save
   verify_cancellation:
-    if: github.ref == 'refs/heads/ci/440-read-cancel'
+    if: github.ref == 'refs/heads/ci/440-cancel' && contains(github.event.head_commit.message, 'verify-cancel-cache')
     needs: scope
     runs-on: ubuntu-latest
     steps:
